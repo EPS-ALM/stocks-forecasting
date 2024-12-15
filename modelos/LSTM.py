@@ -221,7 +221,7 @@ def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecas
     
     # Train model
     model = create_lstm_model(input_shape=(time_steps, 1), units=50)
-    model.fit(X_train, y_train, epochs=2, batch_size=32, verbose=0)
+    model.fit(X_train, y_train, epochs=200, batch_size=32, verbose=0)
     
     # Predict and inverse transform
     train_predict = model.predict(X_train)
