@@ -283,7 +283,7 @@ def example_model_workflow(path):
         column='Close', 
         test_size=0.2, 
         time_steps=10, 
-        forecast_days=7, 
+        forecast_days=30, 
         save_model=True,
         save_dir=path
     )
