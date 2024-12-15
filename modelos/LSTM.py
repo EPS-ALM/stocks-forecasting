@@ -1,4 +1,6 @@
 import os
+import json
+import joblib
 import numpy as np
 import pandas as pd
 import plotly.graph_objs as go
@@ -7,7 +9,24 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import LSTM, Dense
 from tensorflow.keras.optimizers import Adam
-import joblib
+
+
+def list_repository_files(repository_path):
+    """Lists all files within a given repository.
+
+    Args:
+        repository_path (str): The path to the repository or directory.
+
+    Returns:
+        list: A list containing paths to all files in the repository.
+    """
+    files = []
+    for root, dirs, file_names in os.walk(repository_path):
+        for file_name in file_names:
+            # Adds the full file path
+            files.append(os.path.join(root, file_name))
+
+    return files
 
 def prepare_data(data, time_steps=1):
     """
@@ -170,7 +189,7 @@ def create_plotly_visualization(original_data, test_predict, future_predictions,
     
     return fig
 
-def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecast_days=30, save_model=False):
+def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecast_days=30, save_model=True, save_dir=""):
     """
     Perform LSTM forecasting on time series data.
     
@@ -202,7 +221,7 @@ def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecas
     
     # Train model
     model = create_lstm_model(input_shape=(time_steps, 1), units=50)
-    model.fit(X_train, y_train, epochs=100, batch_size=32, verbose=0)
+    model.fit(X_train, y_train, epochs=2, batch_size=32, verbose=0)
     
     # Predict and inverse transform
     train_predict = model.predict(X_train)
@@ -233,7 +252,8 @@ def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecas
     
     # Optional model saving
     if save_model:
-        save_model_artifacts(model, scaler, time_steps)
+        save_dir_final = save_dir.split('/')[-1].split('.')[0]
+        save_model_artifacts(model, scaler, time_steps, save_dir_final)
 
     # Generate and show Plotly figure
     plotly_fig = create_plotly_visualization(data, test_predict, future_predictions, df)
@@ -249,13 +269,12 @@ def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecas
     }
 
 # Example usage demonstrating model saving and loading
-def example_model_workflow():
+def example_model_workflow(path):
     """
     Demonstrate the complete workflow of training, saving, and reusing an LSTM model.
     """
-    # Step 1: Load your initial training data
-    # Replace this with your actual data loading method
-    df = pd.read_csv('../dados/raw/PETR4.SA.csv', parse_dates=['Date'], index_col='Date')
+    # Step 1: Load your initial training data    
+    df = pd.read_csv(path, parse_dates=['Date'], index_col='Date')
     
     # Step 2: Train and save the initial model
     print("Training and saving the initial model...")
@@ -265,12 +284,14 @@ def example_model_workflow():
         test_size=0.2, 
         time_steps=10, 
         forecast_days=7, 
-        save_model=True  # This will save the model artifacts
+        save_model=True,
+        save_dir=path
     )
     
     # Step 3: Later, load the saved model for new predictions
     print("\nLoading saved model artifacts...")
-    loaded_artifacts = load_model_artifacts()
+    load_path = path.split('/')[-1].split('.')[0]
+    loaded_artifacts = load_model_artifacts(load_path)
     
     # Step 4: Demonstrate how to use the loaded model for prediction
     print("\nUsing loaded model for new predictions...")
@@ -288,4 +309,7 @@ def example_model_workflow():
 
 # Example running the workflow
 if __name__ == "__main__":
-    example_model_workflow()
+    stocks = list_repository_files('../dados/raw')
+    
+    for stock in stocks:
+        example_model_workflow(stock)
