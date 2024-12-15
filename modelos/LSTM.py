@@ -130,7 +130,7 @@ def load_model_artifacts(model_dir='model_artifacts'):
     }
 
 # Plotly Interactive Visualization
-def create_plotly_visualization(original_data, test_predict, future_predictions, df):
+def create_plotly_visualization(original_data, test_predict, future_predictions, df, path):
     """
     Create an interactive Plotly visualization of the forecast.
     
@@ -180,7 +180,7 @@ def create_plotly_visualization(original_data, test_predict, future_predictions,
     
     # Update layout
     fig.update_layout(
-        title='LSTM Time Series Forecast',
+        title=f'{path} Time Series Forecast',
         xaxis_title='Date',
         yaxis_title='Close Price',
         hovermode='x unified',
@@ -256,7 +256,7 @@ def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecas
         save_model_artifacts(model, scaler, time_steps, save_dir_final)
 
     # Generate and show Plotly figure
-    plotly_fig = create_plotly_visualization(data, test_predict, future_predictions, df)
+    plotly_fig = create_plotly_visualization(data, test_predict, future_predictions, df, save_dir_final)
     plotly_fig.show()
     
     return {
