@@ -11,6 +11,9 @@ from tensorflow.keras.layers import LSTM, Dense
 from tensorflow.keras.optimizers import Adam
 
 
+def get_avaible_models():
+    return os.listdir('./modelos/trained')
+
 def list_repository_files(repository_path):
     """Lists all files within a given repository.
 
@@ -252,7 +255,7 @@ def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecas
     
     # Optional model saving
     if save_model:
-        save_dir_final = save_dir.split('/')[-1].split('.')[0]
+        save_dir_final = "./trained/" + save_dir.split('/')[-1].split('.')[0]
         save_model_artifacts(model, scaler, time_steps, save_dir_final)
 
     # Generate and show Plotly figure
