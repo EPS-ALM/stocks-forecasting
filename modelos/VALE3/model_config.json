@@ -1,0 +1,1 @@
+{"time_steps": 10, "input_shape": [null, 10, 1], "model_path": "VALE3/lstm_model.h5", "scaler_path": "VALE3/data_scaler.joblib"}

@@ -1,0 +1,1 @@
+{"time_steps": 10, "input_shape": [null, 10, 1], "model_path": "PETR4/lstm_model.h5", "scaler_path": "PETR4/data_scaler.joblib"}
