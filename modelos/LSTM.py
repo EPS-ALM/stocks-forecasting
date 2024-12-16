@@ -255,12 +255,12 @@ def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecas
     
     # Optional model saving
     if save_model:
-        save_dir_final = "./trained/" + save_dir.split('/')[-1].split('.')[0]
-        save_model_artifacts(model, scaler, time_steps, save_dir_final)
+        #save_dir_final = "/trained/" + save_dir.split('/')[-1].split('.')[0]
+        save_model_artifacts(model, scaler, time_steps, save_dir)
 
     # Generate and show Plotly figure
     plotly_fig = create_plotly_visualization(data, test_predict, future_predictions, df, save_dir_final)
-    plotly_fig.show()
+    #plotly_fig.show()
     
     return {
         'future_predictions': future_predictions,
@@ -272,47 +272,48 @@ def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecas
     }
 
 # Example usage demonstrating model saving and loading
-def example_model_workflow(path):
+def run_model_training_workflow(df:pd.DataFrame, stock_name:str):
     """
     Demonstrate the complete workflow of training, saving, and reusing an LSTM model.
     """
     # Step 1: Load your initial training data    
-    df = pd.read_csv(path, parse_dates=['Date'], index_col='Date')
+    #df = pd.read_csv(path, parse_dates=['Date'], index_col='Date')
     
+    path = f'../trained/{stock_name}'
+        
     # Step 2: Train and save the initial model
     print("Training and saving the initial model...")
-    initial_results = forecast_with_lstm(
+    results = forecast_with_lstm(
         df, 
         column='Close', 
         test_size=0.2, 
         time_steps=10, 
-        forecast_days=30, 
+        forecast_days=7, 
         save_model=True,
         save_dir=path
     )
     
     # Step 3: Later, load the saved model for new predictions
-    print("\nLoading saved model artifacts...")
-    load_path = path.split('/')[-1].split('.')[0]
-    loaded_artifacts = load_model_artifacts(load_path)
+    #print("\nLoading saved model artifacts...")
+    #load_path = path.split('/')[-1].split('.')[0]
+    #loaded_artifacts = load_model_artifacts(load_path)
     
     # Step 4: Demonstrate how to use the loaded model for prediction
-    print("\nUsing loaded model for new predictions...")
+    #print("\nUsing loaded model for new predictions...")
     # Prepare new data sequence (must match original training configuration)
-    new_data = df['Close'].values[-loaded_artifacts['time_steps']:].reshape(1, -1, 1)
+    #new_data = df['Close'].values[-loaded_artifacts['time_steps']:].reshape(1, -1, 1)
     
     # Normalize the new data using the saved scaler
-    new_data_scaled = loaded_artifacts['scaler'].transform(new_data.reshape(-1, 1)).reshape(1, -1, 1)
+    #new_data_scaled = loaded_artifacts['scaler'].transform(new_data.reshape(-1, 1)).reshape(1, -1, 1)
     
     # Make prediction
-    new_prediction_scaled = loaded_artifacts['model'].predict(new_data_scaled)
-    new_prediction = loaded_artifacts['scaler'].inverse_transform(new_prediction_scaled)[0][0]
+    #new_prediction_scaled = loaded_artifacts['model'].predict(new_data_scaled)
+    #new_prediction = loaded_artifacts['scaler'].inverse_transform(new_prediction_scaled)[0][0]
     
-    print(f"Next predicted value: {new_prediction}")
+    #print(f"Next predicted value: {new_prediction}")
 
-# Example running the workflow
-if __name__ == "__main__":
-    stocks = list_repository_files('../dados/raw')
-    
-    for stock in stocks:
-        example_model_workflow(stock)
+#if __name__ == "__main__":
+#    stocks = list_repository_files('../dados/raw')
+#    
+#    for stock in stocks:
+#        example_model_workflow(stock)
