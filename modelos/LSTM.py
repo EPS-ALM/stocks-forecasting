@@ -9,6 +9,10 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import LSTM, Dense
 from tensorflow.keras.optimizers import Adam
+import plotly.io as pio
+import base64
+from typing import Optional, Dict, Any
+from tensorflow.keras.losses import MeanSquaredError
 
 
 def get_avaible_models():
@@ -99,7 +103,6 @@ def save_model_artifacts(model, scaler, time_steps, save_dir='model_artifacts'):
         'model_path': model_path,
         'scaler_path': scaler_path
     }
-    import json
     with open(config_path, 'w') as f:
         json.dump(config, f)
     
@@ -135,16 +138,17 @@ def load_model_artifacts(model_dir='model_artifacts'):
 # Plotly Interactive Visualization
 def create_plotly_visualization(original_data, test_predict, future_predictions, df, path):
     """
-    Create an interactive Plotly visualization of the forecast.
+    Create a Plotly visualization of the forecast and return as base64 image.
     
     Args:
         original_data (np.array): Original time series data
         test_predict (np.array): Test predictions
         future_predictions (np.array): Future forecast predictions
         df (pd.DataFrame): Original DataFrame
+        path (str): Path for the title
     
     Returns:
-        plotly.graph_objs.Figure: Interactive visualization
+        str: Base64 encoded image of the plot
     """
     # Prepare dates for plotting
     original_dates = df.index
@@ -190,7 +194,11 @@ def create_plotly_visualization(original_data, test_predict, future_predictions,
         legend_title_text='Data Types'
     )
     
-    return fig
+    # Convert to static image and encode in base64
+    img_bytes = pio.to_image(fig, format="png", scale=2)
+    img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+    
+    return img_base64
 
 def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecast_days=30, save_model=True, save_dir=""):
     """
@@ -258,9 +266,8 @@ def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecas
         #save_dir_final = "/trained/" + save_dir.split('/')[-1].split('.')[0]
         save_model_artifacts(model, scaler, time_steps, save_dir)
 
-    # Generate and show Plotly figure
-    plotly_fig = create_plotly_visualization(data, test_predict, future_predictions, df, save_dir_final)
-    #plotly_fig.show()
+    # Generate and return base64 plot instead of showing it
+    plotly_base64 = create_plotly_visualization(data, test_predict, future_predictions, df, save_dir_final)
     
     return {
         'future_predictions': future_predictions,
@@ -268,7 +275,7 @@ def forecast_with_lstm(df, column='Close', test_size=0.2, time_steps=10, forecas
         'test_mse': test_mse,
         'train_mae': train_mae,
         'test_mae': test_mae,
-        'plotly_figure': plotly_fig
+        'plot_base64': plotly_base64
     }
 
 # Example usage demonstrating model saving and loading
@@ -317,3 +324,252 @@ def run_model_training_workflow(df:pd.DataFrame, stock_name:str):
 #    
 #    for stock in stocks:
 #        example_model_workflow(stock)
+
+class LSTMModel:
+    def __init__(self, time_steps: int = 10, units: int = 50):
+        """
+        Initialize LSTM model with specified parameters
+        
+        Args:
+            time_steps: Number of previous time steps to use for prediction
+            units: Number of LSTM units
+        """
+        self.time_steps = time_steps
+        self.units = units
+        self.model = None
+        self.scaler = MinMaxScaler()
+        
+    def prepare_data(self, data: np.array) -> tuple:
+        """
+        Prepare data for LSTM by creating sliding window sequences.
+        
+        Args:
+            data: Input data series
+            
+        Returns:
+            tuple: (X sequences, y targets)
+        """
+        X, y = [], []
+        for i in range(len(data) - self.time_steps):
+            X.append(data[i:(i + self.time_steps)])
+            y.append(data[i + self.time_steps])
+        return np.array(X), np.array(y)
+
+    def create_model(self, input_shape: tuple) -> Sequential:
+        """
+        Create LSTM model for time series forecasting.
+        
+        Args:
+            input_shape: Shape of input data
+            
+        Returns:
+            Sequential: Compiled LSTM model
+        """
+        model = Sequential([
+            LSTM(self.units, activation='relu', input_shape=input_shape),
+            Dense(1)
+        ])
+        model.compile(
+            optimizer=Adam(learning_rate=0.001),
+            loss=MeanSquaredError(),
+            metrics=['mae']
+        )
+        return model
+
+    def train(self, data: pd.Series, test_size: float = 0.2):
+        """
+        Train the LSTM model
+        
+        Args:
+            data: Time series data for training
+            test_size: Proportion of data to use for testing
+        """
+        # Store original data
+        self.original_data = data
+        
+        # Scale the data
+        data_values = data.values.reshape(-1, 1)
+        scaled_data = self.scaler.fit_transform(data_values)
+        
+        # Prepare sequences
+        X, y = self.prepare_data(scaled_data)
+        
+        # Split data
+        split = int(len(X) * (1 - test_size))
+        self.X_train, self.X_test = X[:split], X[split:]
+        self.y_train, self.y_test = y[:split], y[split:]
+        
+        # Create and train model
+        self.model = self.create_model(input_shape=(self.time_steps, 1))
+        self.model.fit(self.X_train, self.y_train, epochs=200, batch_size=32, verbose=0)
+
+    def predict(self, data: pd.Series, forecast_days: int) -> pd.Series:
+        """
+        Make predictions for n days ahead
+        
+        Args:
+            data: Input time series data
+            forecast_days: Number of days to forecast
+            
+        Returns:
+            pd.Series: Predictions with datetime index
+        """
+        if self.model is None:
+            raise ValueError("Model must be trained before making predictions")
+        
+        # Prepare last sequence
+        last_sequence = self.scaler.transform(data.values[-self.time_steps:].reshape(-1, 1))
+        last_sequence = last_sequence.reshape((1, self.time_steps, 1))
+        
+        # Generate predictions
+        future_predictions = []
+        current_sequence = last_sequence.copy()
+        
+        # Create future dates
+        last_date = data.index[-1]
+        future_dates = pd.date_range(
+            start=last_date + pd.Timedelta(days=1),
+            periods=forecast_days,
+            freq='B'  # Business days frequency
+        )
+        
+        for _ in range(forecast_days):
+            # Predict next value
+            next_pred = self.model.predict(current_sequence)[0]
+            future_predictions.append(next_pred[0])
+            
+            # Update sequence
+            current_sequence = np.roll(current_sequence, -1)
+            current_sequence[0, -1, 0] = next_pred[0]
+        
+        # Transform predictions back to original scale
+        predictions = self.scaler.inverse_transform(
+            np.array(future_predictions).reshape(-1, 1)
+        )
+        
+        return pd.Series(predictions.flatten(), index=future_dates)
+
+    def generate_plot(self, data: pd.Series, predictions: pd.Series) -> str:
+        """
+        Generate plot for the predictions
+        
+        Args:
+            data: Original time series data
+            predictions: Predicted values
+            
+        Returns:
+            str: Base64 encoded plot image
+        """
+        # Prepare dates for plotting
+        last_date = predictions.index[0] if len(predictions) > 0 else data.index[-1]
+        historical_cutoff = last_date - pd.Timedelta(days=100)
+        historical_data = data[data.index >= historical_cutoff]
+        
+        # Create figure
+        fig = go.Figure()
+        
+        # Historical data trace
+        fig.add_trace(go.Scatter(
+            x=historical_data.index, 
+            y=historical_data.values, 
+            mode='lines', 
+            name='Historical Data', 
+            line=dict(color='blue')
+        ))
+        
+        # Predictions trace
+        fig.add_trace(go.Scatter(
+            x=predictions.index, 
+            y=predictions.values, 
+            mode='lines', 
+            name='Predictions', 
+            line=dict(color='red', dash='dash', width=2)
+        ))
+        
+        # Update layout
+        fig.update_layout(
+            title='LSTM Time Series Forecast',
+            xaxis_title='Date',
+            yaxis_title='Value',
+            hovermode='x unified',
+            legend_title_text='Data Types'
+        )
+        
+        # Convert to static image and encode in base64
+        img_bytes = pio.to_image(fig, format="png", scale=2)
+        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+        
+        return img_base64
+
+    def evaluate(self, y_true: pd.Series, y_pred: pd.Series) -> Dict[str, float]:
+        """
+        Evaluate model performance
+        
+        Args:
+            y_true: Actual values
+            y_pred: Predicted values
+            
+        Returns:
+            Dict[str, float]: Dictionary with evaluation metrics
+        """
+        mse = mean_squared_error(y_true, y_pred)
+        mae = mean_absolute_error(y_true, y_pred)
+        rmse = np.sqrt(mse)
+        mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+        
+        return {
+            'MSE': mse,
+            'MAE': mae,
+            'RMSE': rmse,
+            'MAPE': mape
+        }
+
+    def save_model(self, save_dir: str):
+        """
+        Save model artifacts
+        
+        Args:
+            save_dir: Directory to save model artifacts
+        """
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # Save Keras model
+        self.model.save(os.path.join(save_dir, 'lstm_model.h5'))
+        
+        # Save scaler
+        joblib.dump(self.scaler, os.path.join(save_dir, 'scaler.joblib'))
+        
+        # Save configuration
+        config = {
+            'time_steps': self.time_steps,
+            'units': self.units
+        }
+        with open(os.path.join(save_dir, 'config.json'), 'w') as f:
+            json.dump(config, f)
+
+    @classmethod
+    def load_model(cls, model_dir: str) -> 'LSTMModel':
+        """
+        Load saved model
+        
+        Args:
+            model_dir: Directory containing saved model artifacts
+            
+        Returns:
+            LSTMModel: Loaded model instance
+        """
+        # Load configuration
+        with open(os.path.join(model_dir, 'config.json'), 'r') as f:
+            config = json.load(f)
+        
+        # Create instance
+        instance = cls(
+            time_steps=config['time_steps'],
+            units=config['units']
+        )
+        
+        # Load model and scaler
+        instance.model = load_model(os.path.join(model_dir, 'lstm_model.h5'))
+        instance.scaler = joblib.load(os.path.join(model_dir, 'scaler.joblib'))
+        
+        return instance

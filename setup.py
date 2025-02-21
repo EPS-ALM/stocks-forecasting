@@ -14,6 +14,7 @@ setup(
         "xgboost",
         "tbats",
         "joblib",
+        "kaleido",
     ],
     python_requires=">=3.8",
     author="Arthur Ferreira, Augusto Camargo",  

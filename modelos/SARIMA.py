@@ -8,7 +8,8 @@ from typing import Tuple, List, Optional
 import warnings
 import os
 from datetime import datetime
-warnings.filterwarnings('ignore')
+import matplotlib
+matplotlib.use('Agg')  # Use non-GUI backend
 
 class SARIMAModel:
     def __init__(self, order: Tuple[int, int, int] = (2, 1, 2),
@@ -144,16 +145,17 @@ class SARIMAModel:
             method='lbfgs'
         )
         
-    def predict(self, n_steps: int, start_idx: Optional[int] = None) -> pd.Series:
+    def predict(self, stock_data: pd.Series, n_steps: int, start_idx: Optional[int] = None) -> pd.Series:
         """
         Make predictions for n steps ahead
         
         Args:
+            stock_data: Original stock data series
             n_steps: Number of steps to forecast
             start_idx: Optional start index for in-sample predictions
             
         Returns:
-            Series with predictions
+            pd.Series: Predictions in original scale with proper datetime index
         """
         if self.fitted_model is None:
             raise ValueError("Model must be trained before making predictions")
@@ -165,10 +167,47 @@ class SARIMAModel:
         else:
             # Out-of-sample forecast
             forecast = self.fitted_model.forecast(steps=n_steps)
-            predictions = forecast
+            
+            # Create future dates index
+            last_date = stock_data.index[-1]
+            future_dates = pd.date_range(
+                start=last_date + pd.Timedelta(days=1),
+                periods=n_steps,
+                freq='B'  # Business days frequency
+            )
+            
+            # Create series with future dates index
+            predictions = pd.Series(forecast, index=future_dates)
         
         # Transform predictions back to original scale
-        return self.inverse_transform(predictions, self.original_data)
+        predictions_transformed = self.inverse_transform(predictions, self.original_data)
+        
+        return predictions_transformed
+
+    def generate_plot(self, stock_data: pd.Series, predictions: pd.Series, start_idx: Optional[int] = None) -> str:
+        """
+        Generate plot for the predictions
+        
+        Args:
+            stock_data: Original stock data series
+            predictions: Predicted values
+            start_idx: Optional start index for in-sample predictions
+            
+        Returns:
+            str: Base64 encoded plot image
+        """
+        actual_values = None
+        if start_idx is not None:
+            actual_values = stock_data[predictions.index]
+        
+        base64_plot = self.plot_predictions(
+            train_data=self.original_data,
+            predictions=predictions,
+            test_data=actual_values,
+            title=f'{"In-Sample" if start_idx else "Future"} Forecast - {len(predictions)} Days Ahead'
+        )
+        
+        return base64_plot
     
     def evaluate(self, y_true: pd.Series, y_pred: pd.Series) -> dict:
         """
@@ -203,20 +242,39 @@ class SARIMAModel:
             predictions: Model predictions
             test_data: Test data (optional)
             title: Custom title for the plot
+            
+        Returns:
+            str: Base64 encoded image of the plot
         """
+        import io
+        import base64
+        
+        # Create figure with larger size
         fig = plt.figure(figsize=(15, 8))
         
+        # Plot training data (show last 100 points)
+        if len(predictions) > 0:
+            last_date = predictions.index[-1]  # Changed from [0] to [-1] to show full range
+        else:
+            last_date = train_data.index[-1]
+        
+        historical_cutoff = predictions.index[0] - pd.Timedelta(days=100) if len(predictions) > 0 else last_date - pd.Timedelta(days=100)
+        historical_data = train_data[train_data.index >= historical_cutoff]
+        
         # Plot training data
-        plt.plot(train_data.index[-100:], train_data.values[-100:], 
+        plt.plot(historical_data.index, historical_data.values, 
                 label='Training Data', color='blue', alpha=0.7)
         
-        # Plot predictions
-        plt.plot(predictions.index, predictions.values, 
-                label='Predictions', color='red', linestyle='--')
+        # Plot predictions with different color and style
+        if len(predictions) > 0:
+            plt.plot(predictions.index, predictions.values, 
+                    label='Predictions', color='red', linestyle='--', linewidth=2)
         
         if test_data is not None:
             # Ensure we're only plotting test data for the prediction period
-            test_period = test_data[predictions.index[0]:predictions.index[-1]]
+            test_period = test_data[test_data.index >= predictions.index[0]]
+            test_period = test_period[test_period.index <= predictions.index[-1]]
+            
             plt.plot(test_period.index, test_period.values, 
                     label='Actual Values', color='green', alpha=0.7)
             
@@ -237,9 +295,17 @@ class SARIMAModel:
         plt.xticks(rotation=45)
         plt.tight_layout()
         
-        # Show and close the figure properly
-        plt.show()
+        # Save plot to bytes buffer
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
         plt.close(fig)
+        
+        # Encode the bytes buffer to base64
+        buf.seek(0)
+        img_base64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+        buf.close()
+        
+        return img_base64
 
     def backtest(self, data: pd.Series, start_idx: int, n_steps: int):
         """
@@ -251,7 +317,7 @@ class SARIMAModel:
             n_steps: Number of steps to forecast
         """
         # Get predictions
-        predictions = self.predict(n_steps, start_idx=start_idx)
+        predictions = self.predict(data, n_steps, start_idx=start_idx)
         
         # Get actual values for the same period
         actual_values = data[predictions.index]
@@ -259,18 +325,10 @@ class SARIMAModel:
         # Calculate metrics
         metrics = self.evaluate(actual_values, predictions)
         
-        # Get the date for the title
-        start_date = data.index[start_idx].strftime('%Y-%m-%d')
+        # Generate plot
+        base64_plot = self.generate_plot(data, predictions, start_idx=start_idx)
         
-        # Plot results
-        self.plot_predictions(
-            train_data=data[:start_idx],
-            predictions=predictions,
-            test_data=actual_values,
-            title=f'SARIMA Backtest - {n_steps} Steps from {start_date}'
-        )
-        
-        return predictions, actual_values, metrics
+        return predictions, actual_values, metrics, base64_plot
 
 def main():
     # Get the absolute path to the script's directory
@@ -337,7 +395,7 @@ def main():
     for start_idx in backtest_indices:
         date = data.index[start_idx].strftime('%Y-%m-%d')
         print(f"\nBacktesting from {date} (index {start_idx}):")
-        predictions, actuals, metrics = model.backtest(data, start_idx, n_steps=30)
+        predictions, actuals, metrics, plot = model.backtest(data, start_idx, n_steps=30)
         
         print("Backtest metrics:")
         for metric, value in metrics.items():
